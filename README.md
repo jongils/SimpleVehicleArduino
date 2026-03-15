@@ -55,8 +55,63 @@
 | `updateAckermann()` | 애커먼 기하학으로 4륜 개별 조향각 계산 |
 | `normalForces()` | 종방향 무게 이동을 반영한 4륜 법선력 계산 |
 | `integrateWheel()` | 반암시적 오일러법(semi-implicit Euler)으로 휠 각속도 적분 (저속 수치 불안정 방지) |
-| `updateDynamics()` | 매 루프 호출되는 메인 동역학 업데이트 (종/횡방향 통합) |
+| `updateDynamics()` | 매 루프 호출되는 메인 동역학 업데이트 (종/횡방향 통합) — `USE_RK4` 플래그로 적분 방식 선택 |
 | `sendCANFrames()` | 계산 결과를 CAN 프레임으로 인코딩 후 100 Hz로 전송 |
+
+#### 수치 적분 방법
+
+차량 동역학 상태 변수(차속, 횡속도, 요레이트)의 시간 적분에는 두 가지 방법을 지원합니다.  
+`VehicleDynamicsCAN.ino` 상단의 `#define USE_RK4` 값(0 또는 1)으로 선택합니다.
+
+##### Variable-step 전향 오일러 (USE_RK4 = 0)
+
+```
+x(t+dt) = x(t) + f(x, t) · dt
+```
+
+- **단계당 미분 계산 횟수**: 1회
+- **국소 절단 오차**: O(dt²), **전역 오차**: O(dt)
+- `dt`는 `micros()`로 측정한 실제 루프 경과 시간 → 루프 속도에 자동 적응 (variable-step)
+- 구현이 단순하고 AVR에서 연산 부담이 가장 적음
+- `dt`가 클수록 오차가 급격히 커지므로, 루프가 지연될 경우(`DT_MAX` 클램프 범위 내에서도) 정확도 저하가 발생할 수 있음
+
+##### 룬게-쿠타 4차 방법 (RK4, USE_RK4 = 1, 기본값)
+
+```
+k1 = f(x,           t)
+k2 = f(x + dt/2·k1, t + dt/2)
+k3 = f(x + dt/2·k2, t + dt/2)
+k4 = f(x + dt·k3,   t + dt)
+x(t+dt) = x(t) + (dt/6)·(k1 + 2k2 + 2k3 + k4)
+```
+
+- **단계당 미분 계산 횟수**: 4회
+- **국소 절단 오차**: O(dt⁵), **전역 오차**: O(dt⁴)
+- 동일한 `dt`에서 오일러 대비 훨씬 정확 (오차가 dt의 4제곱에 비례하여 감소)
+- `dt`가 커도 정확도 유지 → 블로킹 연산 이후 `DT_MAX` 클램프가 적용되는 상황에서 유리
+- AVR(소프트웨어 부동소수점)에서는 오일러 대비 약 3–4× 연산 비용 증가
+
+##### 반암시적 오일러 (휠 각속도 전용, 항상 적용)
+
+휠 각속도(`omega`) 적분에는 `USE_RK4` 플래그와 무관하게 항상 반암시적 오일러를 사용합니다.  
+이는 정확도 문제가 아닌 **수치 안정성** 문제입니다.  
+타이어 종방향 슬립 강성 항이 매우 크기 때문에(강성 방정식, stiff ODE), 전향 오일러로 적분하면  
+`dt < 0.4 ms` 수준의 극히 짧은 스텝에서만 안정합니다. Arduino 루프 `dt ≈ 1–2 ms`에서는  
+반암시적(implicit) 처리 없이는 수치 발산이 발생합니다.
+
+##### 세 방법 비교 요약
+
+| 항목 | Variable-step Euler | RK4 (4차) | Semi-implicit Euler |
+|------|---------------------|-----------|---------------------|
+| 적용 대상 | 차속·횡속도·요레이트 | 차속·횡속도·요레이트 | 휠 각속도 |
+| 전역 오차 | O(dt) | O(dt⁴) | — (무조건 안정) |
+| 미분 계산 횟수/스텝 | 1 | 4 | 1 (implicit) |
+| AVR 연산 부담 | 낮음 | 중간 (~3–4×) | 낮음 |
+| 선택 이유 | 단순·고속 | 정확도 우선 | 강성 시스템 안정성 |
+
+---
+
+
 
 #### 차량 모델
 
@@ -197,8 +252,61 @@ The joystick provides throttle, brake, and steering commands. On every loop iter
 | `updateAckermann()` | Computes individual wheel steer angles using Ackermann geometry |
 | `normalForces()` | Calculates per-wheel normal loads including longitudinal weight transfer |
 | `integrateWheel()` | Semi-implicit Euler integration of wheel speed (numerically stable at low speed) |
-| `updateDynamics()` | Main dynamics update called every loop: longitudinal + lateral integration |
+| `updateDynamics()` | Main dynamics update called every loop: longitudinal + lateral integration — integration method selected via `USE_RK4` |
 | `sendCANFrames()` | Encodes all state variables into CAN frames and transmits at 100 Hz |
+
+#### Numerical Integration Methods
+
+Three integration methods are used in this project for the time-stepping of vehicle state variables (speed, lateral velocity, yaw rate, wheel angular velocity).  
+The method for the vehicle body and lateral states is selected at compile time via `#define USE_RK4` at the top of `VehicleDynamicsCAN.ino`.
+
+##### Variable-step Forward Euler (USE_RK4 = 0)
+
+```
+x(t+dt) = x(t) + f(x, t) · dt
+```
+
+- **Derivative evaluations per step**: 1
+- **Local truncation error**: O(dt²); **global error**: O(dt)
+- `dt` is taken directly from `micros()`, so it adapts to the real loop period (variable-step)
+- Simplest to implement; lowest computational cost on AVR (software floating-point)
+- Accuracy degrades noticeably when `dt` is large (e.g. after blocking operations or when the `DT_MAX` safety clamp engages)
+
+##### Runge-Kutta 4th Order — RK4 (USE_RK4 = 1, default)
+
+```
+k1 = f(x,           t)
+k2 = f(x + dt/2·k1, t + dt/2)
+k3 = f(x + dt/2·k2, t + dt/2)
+k4 = f(x + dt·k3,   t + dt)
+x(t+dt) = x(t) + (dt/6)·(k1 + 2k2 + 2k3 + k4)
+```
+
+- **Derivative evaluations per step**: 4
+- **Local truncation error**: O(dt⁵); **global error**: O(dt⁴)
+- Dramatically more accurate than Euler at the same step size (error shrinks as dt⁴)
+- Maintains accuracy even with larger `dt` — beneficial when loop timing is irregular
+- ~3–4× higher floating-point cost on AVR; at dt ≈ 1–2 ms the practical difference from Euler is small, but at dt = 10–50 ms it is significant
+
+##### Semi-implicit Euler for Wheel Angular Velocity (always active)
+
+Wheel angular velocity (`omega`) always uses semi-implicit Euler, regardless of `USE_RK4`.  
+This is a **numerical stability** decision, not an accuracy one.  
+The tyre longitudinal slip stiffness term creates a *stiff* ODE: explicit Euler requires  
+`dt < 0.4 ms` for stability. Because the Arduino loop runs at `dt ≈ 1–2 ms`,  
+the implicit treatment of the stiffness coefficient (denominator form) is mandatory to prevent oscillation.
+
+##### Method Comparison
+
+| Aspect | Variable-step Euler | RK4 (4th order) | Semi-implicit Euler |
+|--------|---------------------|-----------------|---------------------|
+| Applied to | body speed, Vy, yaw rate | body speed, Vy, yaw rate | wheel angular velocity |
+| Global error | O(dt) | O(dt⁴) | — (unconditionally stable) |
+| Derivative evals/step | 1 | 4 | 1 (implicit) |
+| AVR compute cost | low | medium (~3–4×) | low |
+| Reason for use | simplicity / speed | accuracy priority | stiff-system stability |
+
+---
 
 #### Vehicle Model
 
