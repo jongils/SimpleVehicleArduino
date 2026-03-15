@@ -7,8 +7,8 @@
  *   + CAN-BUS Shield V1.2 (DiyMore, MCP2515)
  *
  * Pin Mapping:
- *   A0  – Joystick X  → Throttle (high) / Brake (low)
- *   A1  – Joystick Y  → Steering (right +, left -)
+ *   A0  – Joystick X  → Steering (right +, left -)
+ *   A1  – Joystick Y  → Throttle (forward) / Brake (backward)
  *   D6  – Joystick SW
  *   D2  – SW1  (CAN INT — unused; no conflict)
  *   D3  – SW2
@@ -27,6 +27,7 @@
  *   0x103  Wheel RL: (same layout)
  *   0x104  Wheel RR: (same layout)
  *   0x200  Steering: [SW_H][SW_L][RW_H][RW_L][0][0][0][0]
+ *   0x201  Lateral : [AY_H][AY_L][YR_H][YR_L][BETA_H][BETA_L][0][0]
  *   0x300  Vehicle : [SPD_H][SPD_L][ACC_H][ACC_L][0][0][0][0]
  *
  * Signal resolution:
@@ -65,8 +66,9 @@
 //  CAN configuration
 // ============================================================
 #define CAN_BAUD        CAN_500KBPS
-// DiyMore CAN-BUS Shield V1.2 typically ships with 8 MHz crystal.
-// Change to MCP_16MHZ if yours has a 16 MHz oscillator.
+// DiyMore CAN-BUS Shield V1.2 typically ships with an 8 MHz crystal.
+// Change to MCP_8MHZ if that is the case; keep MCP_16MHZ only if your
+// shield has a 16 MHz oscillator (the less common variant).
 #define CAN_OSC_FREQ    MCP_16MHZ
 
 #define CAN_ID_ENGINE   0x100u
@@ -263,13 +265,13 @@ static inline float calcSlip(float omega, float vx)
 // ============================================================
 static void readJoystick()
 {
-    int rawX = analogRead(PIN_JOY_Y);   // Accel axis (physical Y → A1)
-    int rawY = analogRead(PIN_JOY_X);   // Steer axis (physical X → A0)
+    int rawAccel = analogRead(PIN_JOY_Y);   // Throttle/brake axis (physical Y → A1)
+    int rawSteer = analogRead(PIN_JOY_X);   // Steering axis       (physical X → A0)
 
     // --- Throttle / Brake (A1) ---
-    // Joystick pushed forward  (rawX > centre) → throttle
-    // Joystick pulled backward (rawX < centre) → brake
-    int dx = rawX - P_JOY_CENTER;
+    // Joystick pushed forward  (rawAccel > centre) → throttle
+    // Joystick pulled backward (rawAccel < centre) → brake
+    int dx = rawAccel - P_JOY_CENTER;
     if (abs(dx) <= P_JOY_DEADZONE) {
         gThrottle = gBrake = 0.0f;
     } else if (dx > 0) {
@@ -287,9 +289,9 @@ static void readJoystick()
     }
 
     // --- Steering (A0) ---
-    // Joystick right (rawY > centre) → positive (right) steering
-    // Joystick left  (rawY < centre) → negative (left)  steering
-    int dy = rawY - P_JOY_CENTER;
+    // Joystick right (rawSteer > centre) → positive (right) steering
+    // Joystick left  (rawSteer < centre) → negative (left)  steering
+    int dy = rawSteer - P_JOY_CENTER;
     if (abs(dy) <= P_JOY_DEADZONE) {
         gSteerSW = 0.0f;
     } else {
