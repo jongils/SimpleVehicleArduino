@@ -84,6 +84,34 @@
 #define CAN_TX_PERIOD_MS   10u   // 100 Hz
 
 // ============================================================
+//  Integration method selection
+// ============================================================
+//
+//  Variable-step forward Euler (USE_RK4 = 0):
+//    x(t+dt) = x(t) + f(x,t) · dt
+//    Local truncation error: O(dt²); global error: O(dt).
+//    dt is measured with micros() so it adapts to actual loop timing.
+//    One derivative evaluation per step → very fast on AVR.
+//
+//  Runge-Kutta 4th order — RK4 (USE_RK4 = 1):
+//    k1 = f(x,           t)
+//    k2 = f(x + dt/2·k1, t + dt/2)
+//    k3 = f(x + dt/2·k2, t + dt/2)
+//    k4 = f(x + dt·k3,   t + dt)
+//    x(t+dt) = x(t) + (dt/6)·(k1 + 2k2 + 2k3 + k4)
+//    Local truncation error: O(dt⁵); global error: O(dt⁴).
+//    Four derivative evaluations per step → ~4× more compute.
+//    At typical loop rates (dt ≈ 1–2 ms) both methods give nearly
+//    identical results; the difference is most visible when dt is
+//    large (e.g. after a blocking call or the DT_MAX safety clamp).
+//
+//  Semi-implicit Euler used in integrateWheel() is independent of
+//  this flag — that choice is about numerical *stability* in a stiff
+//  system, not accuracy order.
+//
+#define USE_RK4  1   // 1 = RK4,  0 = variable-step Euler
+
+// ============================================================
 //  Vehicle parameters — edit freely
 // ============================================================
 
@@ -402,7 +430,46 @@ static void integrateWheel(WheelState &w,
 }
 
 // ============================================================
-//  Main dynamics update (variable-step Euler)
+//  RK4 helpers — only compiled when USE_RK4 is set
+// ============================================================
+#if USE_RK4
+
+// Lateral bicycle-model derivative at state (vy, r).
+// Returns (dVy/dt, dr/dt); all other inputs are treated as constants
+// within the integration sub-step.
+struct LatEval { float vy_dot; float r_dot; };
+
+static LatEval latEval(float vy, float r,
+                       float vxLat, float delta_rad,
+                       float NfTot, float NrTot)
+{
+    const float lf_m = P_CG_TO_FRONT_M;
+    const float lr_m = P_WHEELBASE_M - P_CG_TO_FRONT_M;
+    float alphaF = delta_rad - (vy + lf_m * r) / vxLat;
+    float alphaR =            -(vy - lr_m * r) / vxLat;
+    float Fyf    = clampf(P_TYRE_CF * alphaF, -P_TYRE_MU * NfTot, P_TYRE_MU * NfTot);
+    float Fyr    = clampf(P_TYRE_CR * alphaR, -P_TYRE_MU * NrTot, P_TYRE_MU * NrTot);
+    LatEval d;
+    d.vy_dot = (Fyf + Fyr) / P_MASS_KG - r * vxLat;
+    d.r_dot  = (lf_m * Fyf - lr_m * Fyr) / P_VEHICLE_IZ_KGM2;
+    return d;
+}
+
+// Longitudinal body acceleration at speed v.
+// FxSum (tyre forces) and Froll (rolling resistance) are constants within
+// the sub-step; only aero drag (∝ v²) varies with v.
+static inline float lonDeriv(float v, float FxSum, float Froll)
+{
+    float Fdrag = 0.5f * P_AIR_DENSITY * P_AERO_CD * P_FRONTAL_AREA_M2 * v * v;
+    float Fnet  = FxSum - Fdrag - Froll;
+    if (Fnet < 0.0f && v < 0.01f) Fnet = 0.0f;  // no backward creep
+    return Fnet / P_MASS_KG;
+}
+
+#endif // USE_RK4
+
+// ============================================================
+//  Main dynamics update — variable-step Euler or RK4 (see USE_RK4)
 // ============================================================
 static void updateDynamics(float dt)
 {
@@ -472,8 +539,22 @@ static void updateDynamics(float dt)
     if (Fnet < 0.0f && vx < 0.01f) Fnet = 0.0f;  // no backward creep
     gFnet = Fnet;
 
+#if USE_RK4
+    // ── RK4: FxSum and Froll are constant within the sub-step;
+    //         only aero drag (∝ v²) varies with v.
+    {
+        float k1 = lonDeriv(vx,                         FxSum, Froll);
+        float k2 = lonDeriv(max(0.0f, vx + 0.5f*dt*k1), FxSum, Froll);
+        float k3 = lonDeriv(max(0.0f, vx + 0.5f*dt*k2), FxSum, Froll);
+        float k4 = lonDeriv(max(0.0f, vx +      dt*k3), FxSum, Froll);
+        gAccel_ms2 = (k1 + 2.0f*k2 + 2.0f*k3 + k4) / 6.0f;
+        gSpeed_ms  = max(0.0f, vx + dt * gAccel_ms2);
+    }
+#else
+    // ── Variable-step forward Euler ──────────────────────────────────────
     gAccel_ms2 = Fnet / P_MASS_KG;
     gSpeed_ms  = max(0.0f, gSpeed_ms + gAccel_ms2 * dt);
+#endif
 
     // Hard stop: snap to zero when nearly stationary and no throttle
     if (gSpeed_ms < 0.5f && gThrottle < 0.05f) {
@@ -519,9 +600,28 @@ static void updateDynamics(float dt)
                        / P_VEHICLE_IZ_KGM2;
         gVyDot = vy_dot;  gRDot = r_dot;
 
-        // Euler integration
+#if USE_RK4
+        // ── RK4: vy_dot / r_dot computed above serve as k1.
+        {
+            float NfTot = Nfl + Nfr;
+            float NrTot = Nrl + Nrr;
+            LatEval d2 = latEval(gVy_ms + 0.5f*dt*vy_dot,
+                                 gYawRate_rads + 0.5f*dt*r_dot,
+                                 vxLat, delta_rad, NfTot, NrTot);
+            LatEval d3 = latEval(gVy_ms + 0.5f*dt*d2.vy_dot,
+                                 gYawRate_rads + 0.5f*dt*d2.r_dot,
+                                 vxLat, delta_rad, NfTot, NrTot);
+            LatEval d4 = latEval(gVy_ms +      dt*d3.vy_dot,
+                                 gYawRate_rads +      dt*d3.r_dot,
+                                 vxLat, delta_rad, NfTot, NrTot);
+            gVy_ms        += dt * (vy_dot + 2.0f*d2.vy_dot + 2.0f*d3.vy_dot + d4.vy_dot) / 6.0f;
+            gYawRate_rads += dt * (r_dot  + 2.0f*d2.r_dot  + 2.0f*d3.r_dot  + d4.r_dot ) / 6.0f;
+        }
+#else
+        // ── Variable-step forward Euler ──────────────────────────────────────
         gVy_ms        += vy_dot * dt;
         gYawRate_rads += r_dot  * dt;
+#endif
 
         // Lateral acceleration (felt by occupants) [m/s²]
         gLatAccel_ms2  = (Fyf + Fyr) / P_MASS_KG;
