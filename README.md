@@ -17,8 +17,8 @@
 | 부품 | 사양 |
 |------|------|
 | MCU | Arduino Uno |
-| 조이스틱 쉴드 | YwRobot JoyStick Shield V1 |
-| CAN 버스 쉴드 | DiyMore CAN-BUS Shield V1.2 (MCP2515) |
+| 조이스틱 쉴드 | [YwRobot JoyStick Shield V1](https://www.ywrobot.com/product/joystick-shield-v1-0/) |
+| CAN 버스 쉴드 | [DiyMore CAN-BUS Shield V1.2 (MCP2515)](https://www.diymore.cc/products/can-bus-shield-v1-2) |
 
 #### 핀 매핑
 
@@ -214,8 +214,8 @@ The joystick provides throttle, brake, and steering commands. On every loop iter
 | Component | Specification |
 |-----------|---------------|
 | MCU | Arduino Uno |
-| Joystick shield | YwRobot JoyStick Shield V1 |
-| CAN shield | DiyMore CAN-BUS Shield V1.2 (MCP2515) |
+| Joystick shield | [YwRobot JoyStick Shield V1](https://www.ywrobot.com/product/joystick-shield-v1-0/) |
+| CAN shield | [DiyMore CAN-BUS Shield V1.2 (MCP2515)](https://www.diymore.cc/products/can-bus-shield-v1-2) |
 
 #### Pin Mapping
 
