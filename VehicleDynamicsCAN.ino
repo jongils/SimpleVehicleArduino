@@ -549,11 +549,16 @@ static void updateDynamics(float dt)
         float k4 = lonDeriv(max(0.0f, vx +      dt*k3), FxSum, Froll);
         gAccel_ms2 = (k1 + 2.0f*k2 + 2.0f*k3 + k4) / 6.0f;
         gSpeed_ms  = max(0.0f, vx + dt * gAccel_ms2);
+        // Keep gFnet consistent with gAccel_ms2 for serial display.
+        // (gFdrag / gFrollB were recorded at step-start; the RK4-averaged
+        //  drag will differ slightly, so express gFnet as the effective net force.)
+        gFnet = gAccel_ms2 * P_MASS_KG;
     }
 #else
     // ── Variable-step forward Euler ──────────────────────────────────────
     gAccel_ms2 = Fnet / P_MASS_KG;
     gSpeed_ms  = max(0.0f, gSpeed_ms + gAccel_ms2 * dt);
+    // gFnet already set above; consistent with gAccel_ms2 = gFnet / P_MASS_KG.
 #endif
 
     // Hard stop: snap to zero when nearly stationary and no throttle
@@ -594,11 +599,10 @@ static void updateDynamics(float dt)
         float Fyr = clampf(P_TYRE_CR * alphaR, -FyrMax, FyrMax);
         gFyf = Fyf;  gFyr = Fyr;
 
-        // Equations of motion (vehicle body frame)
+        // Equations of motion (vehicle body frame) — k1 for both solvers
         float vy_dot = (Fyf + Fyr) / P_MASS_KG - gYawRate_rads * vxLat;
         float r_dot  = (P_CG_TO_FRONT_M * Fyf - lr_m * Fyr)
                        / P_VEHICLE_IZ_KGM2;
-        gVyDot = vy_dot;  gRDot = r_dot;
 
 #if USE_RK4
         // ── RK4: vy_dot / r_dot computed above serve as k1.
@@ -614,11 +618,15 @@ static void updateDynamics(float dt)
             LatEval d4 = latEval(gVy_ms +      dt*d3.vy_dot,
                                  gYawRate_rads +      dt*d3.r_dot,
                                  vxLat, delta_rad, NfTot, NrTot);
-            gVy_ms        += dt * (vy_dot + 2.0f*d2.vy_dot + 2.0f*d3.vy_dot + d4.vy_dot) / 6.0f;
-            gYawRate_rads += dt * (r_dot  + 2.0f*d2.r_dot  + 2.0f*d3.r_dot  + d4.r_dot ) / 6.0f;
+            // Store RK4-weighted average derivatives for serial display
+            gVyDot = (vy_dot + 2.0f*d2.vy_dot + 2.0f*d3.vy_dot + d4.vy_dot) / 6.0f;
+            gRDot  = (r_dot  + 2.0f*d2.r_dot  + 2.0f*d3.r_dot  + d4.r_dot ) / 6.0f;
+            gVy_ms        += dt * gVyDot;
+            gYawRate_rads += dt * gRDot;
         }
 #else
         // ── Variable-step forward Euler ──────────────────────────────────────
+        gVyDot = vy_dot;  gRDot = r_dot;
         gVy_ms        += vy_dot * dt;
         gYawRate_rads += r_dot  * dt;
 #endif
@@ -778,7 +786,11 @@ void loop()
         // ── line 1: header ───────────────────────────────────────────
         Serial.print(F("=== VehicleDynamicsCAN ===  T:"));
         Serial.print(millis() / 1000.0f, 1);
-        Serial.println(F("s\033[K"));
+#if USE_RK4
+        Serial.println(F("s  [RK4]\033[K"));
+#else
+        Serial.println(F("s  [Euler]\033[K"));
+#endif
 
         // ── line 2: driver inputs ────────────────────────────────────
         Serial.print(F("[IN ] Thr:")); pSgn(gThrottle, 2);
