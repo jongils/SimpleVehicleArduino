@@ -49,6 +49,8 @@
 #include <SPI.h>
 #include <mcp_can.h>
 
+struct LatEval { float vy_dot; float r_dot; };
+
 // ============================================================
 //  Hardware pins
 // ============================================================
@@ -122,7 +124,7 @@ const float P_ENG_IDLE_RPM        =  800.0f; // Idle [rpm]
 const float P_ENG_PEAK_TQ_RPM     = 3500.0f; // RPM at peak torque
 
 // --- Drivetrain (Rear-Wheel-Drive, open differential) ---
-const float P_GEAR_RATIO          =   3.50f; // Current gear ratio
+const float P_GEAR_RATIO          =   0.95f; // Current gear ratio (overdrive top gear → Vmax ~200 km/h)
 const float P_FINAL_DRIVE_RATIO   =   3.73f; // Final drive ratio
 const float P_DRIVETRAIN_EFF      =   0.92f; // Mechanical efficiency
 
@@ -134,7 +136,7 @@ const float P_CG_HEIGHT_M         =   0.50f; // CG height [m]
 const float P_CG_TO_FRONT_M       =   1.20f; // CG to front axle [m]
 
 // --- Aerodynamics ---
-const float P_AERO_CD             =   0.30f; // Drag coefficient
+const float P_AERO_CD             =   0.20f; // Drag coefficient (tuned for Vmax = 200 km/h)
 const float P_FRONTAL_AREA_M2     =   2.20f; // Frontal area [m²]
 const float P_AIR_DENSITY         =   1.225f;// Air density [kg/m³]
 
@@ -160,7 +162,7 @@ const float P_BRAKE_FRONT_BIAS    =   0.60f; // Front proportion
 
 // --- Joystick ADC ---
 const int P_JOY_CENTER            =  512;    // Nominal ADC centre value
-const int P_JOY_DEADZONE          =   30;    // Dead-zone half-width [counts]
+const int P_JOY_DEADZONE          =   50;    // Dead-zone half-width [counts]
 
 // ============================================================
 //  Wheel state
@@ -437,18 +439,17 @@ static void integrateWheel(WheelState &w,
 // Lateral bicycle-model derivative at state (vy, r).
 // Returns (dVy/dt, dr/dt); all other inputs are treated as constants
 // within the integration sub-step.
-struct LatEval { float vy_dot; float r_dot; };
 
 static LatEval latEval(float vy, float r,
                        float vxLat, float delta_rad,
-                       float NfTot, float NrTot)
+                       float FyfMax, float FyrMax)
 {
     const float lf_m = P_CG_TO_FRONT_M;
     const float lr_m = P_WHEELBASE_M - P_CG_TO_FRONT_M;
     float alphaF = delta_rad - (vy + lf_m * r) / vxLat;
     float alphaR =            -(vy - lr_m * r) / vxLat;
-    float Fyf    = clampf(P_TYRE_CF * alphaF, -P_TYRE_MU * NfTot, P_TYRE_MU * NfTot);
-    float Fyr    = clampf(P_TYRE_CR * alphaR, -P_TYRE_MU * NrTot, P_TYRE_MU * NrTot);
+    float Fyf    = clampf(P_TYRE_CF * alphaF, -FyfMax, FyfMax);
+    float Fyr    = clampf(P_TYRE_CR * alphaR, -FyrMax, FyrMax);
     LatEval d;
     d.vy_dot = (Fyf + Fyr) / P_MASS_KG - r * vxLat;
     d.r_dot  = (lf_m * Fyf - lr_m * Fyr) / P_VEHICLE_IZ_KGM2;
@@ -488,8 +489,9 @@ static void updateDynamics(float dt)
                   * 60.0f / (2.0f * (float)M_PI),
         P_ENG_IDLE_RPM, P_ENG_MAX_RPM);
 
-    // ---- Engine torque ----
-    gEngTq_Nm = engineTorque(gThrottle, gEngRPM);
+    // ---- Engine torque (rev limiter: cut torque at redline) ----
+    float effThrottle = (gEngRPM >= P_ENG_MAX_RPM) ? 0.0f : gThrottle;
+    gEngTq_Nm = engineTorque(effThrottle, gEngRPM);
 
     // Drive torque distributed equally to both rear wheels (open diff)
     float driveTqRear = gEngTq_Nm
@@ -531,8 +533,9 @@ static void updateDynamics(float dt)
                        * vx * vx;
     gFdrag = Fdrag;
 
-    // Rolling resistance applied directly to vehicle body
-    float Froll = (vx > 0.01f) ? (P_TYRE_RR * P_MASS_KG * 9.81f) : 0.0f;
+    // Rolling resistance is already applied at wheel level in integrateWheel()
+    // Applying it again here would double-count it, so Froll = 0 at body level.
+    float Froll = 0.0f;
     gFrollB = Froll;
 
     float Fnet = FxSum - Fdrag - Froll;
@@ -592,9 +595,12 @@ static void updateDynamics(float dt)
         float alphaR = -(gVy_ms - lr_m * gYawRate_rads) / vxLat;
         gAlphaF = alphaF;  gAlphaR = alphaR;
 
-        // Lateral forces, clamped by friction limit
-        float FyfMax = P_TYRE_MU * (Nfl + Nfr);
-        float FyrMax = P_TYRE_MU * (Nrl + Nrr);
+        // Lateral forces — friction circle: available Fy per wheel reduced by Fx already used
+        // Fy_max_wheel = sqrt(max(0, (μFz)² - Fx²))
+        float FyfMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nfl) - sq(gFxFL)))
+                     + sqrtf(max(0.0f, sq(P_TYRE_MU*Nfr) - sq(gFxFR)));
+        float FyrMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nrl) - sq(gFxRL)))
+                     + sqrtf(max(0.0f, sq(P_TYRE_MU*Nrr) - sq(gFxRR)));
         float Fyf = clampf(P_TYRE_CF * alphaF, -FyfMax, FyfMax);
         float Fyr = clampf(P_TYRE_CR * alphaR, -FyrMax, FyrMax);
         gFyf = Fyf;  gFyr = Fyr;
@@ -607,17 +613,15 @@ static void updateDynamics(float dt)
 #if USE_RK4
         // ── RK4: vy_dot / r_dot computed above serve as k1.
         {
-            float NfTot = Nfl + Nfr;
-            float NrTot = Nrl + Nrr;
             LatEval d2 = latEval(gVy_ms + 0.5f*dt*vy_dot,
                                  gYawRate_rads + 0.5f*dt*r_dot,
-                                 vxLat, delta_rad, NfTot, NrTot);
+                                 vxLat, delta_rad, FyfMax, FyrMax);
             LatEval d3 = latEval(gVy_ms + 0.5f*dt*d2.vy_dot,
                                  gYawRate_rads + 0.5f*dt*d2.r_dot,
-                                 vxLat, delta_rad, NfTot, NrTot);
+                                 vxLat, delta_rad, FyfMax, FyrMax);
             LatEval d4 = latEval(gVy_ms +      dt*d3.vy_dot,
                                  gYawRate_rads +      dt*d3.r_dot,
-                                 vxLat, delta_rad, NfTot, NrTot);
+                                 vxLat, delta_rad, FyfMax, FyrMax);
             // Store RK4-weighted average derivatives for serial display
             gVyDot = (vy_dot + 2.0f*d2.vy_dot + 2.0f*d3.vy_dot + d4.vy_dot) / 6.0f;
             gRDot  = (r_dot  + 2.0f*d2.r_dot  + 2.0f*d3.r_dot  + d4.r_dot ) / 6.0f;
@@ -630,6 +634,20 @@ static void updateDynamics(float dt)
         gVy_ms        += vy_dot * dt;
         gYawRate_rads += r_dot  * dt;
 #endif
+
+        // ---- Straight-line lateral stability correction ----
+        // When steering is zero (deadzone active → delta_rad == 0.0f exactly),
+        // physics should maintain vy = 0. Speed-dependent damping reduction and
+        // friction-circle rear-Fy suppression during hard acceleration prevent
+        // natural convergence. Apply explicit correction to compensate.
+        //   kStraight = 10 s⁻¹ → time constant 0.10 s, well within one loop tick.
+        if (fabsf(delta_rad) < 1e-6f) {
+            const float kStraight = 10.0f;          // [s⁻¹]
+            float decay = 1.0f - kStraight * dt;
+            if (decay < 0.0f) decay = 0.0f;
+            gVy_ms        *= decay;
+            gYawRate_rads *= decay;
+        }
 
         // Lateral acceleration (felt by occupants) [m/s²]
         gLatAccel_ms2  = (Fyf + Fyr) / P_MASS_KG;
