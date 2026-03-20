@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VehicleDynamicsCAN — 작업 히스토리</title>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --accent: #3b82f6;
+    --accent-light: #eff6ff;
+    --user-bg: #f0f9ff;
+    --user-border: #bae6fd;
+    --ai-bg: #f8fafc;
+    --ai-border: #e2e8f0;
+    --tag-bg: #dbeafe;
+    --tag-color: #1d4ed8;
+    --code-bg: #f1f5f9;
+    --code-border: #cbd5e1;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --section-bg: #e0f2fe;
+    --section-border: #7dd3fc;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+    color: white;
+    border-radius: 16px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.25);
+  }
+  .header h1 { font-size: 1.7rem; font-weight: 700; margin-bottom: 0.4rem; }
+  .header p { opacity: 0.85; font-size: 0.95rem; }
+  .header .meta { display: flex; gap: 1.5rem; margin-top: 1rem; flex-wrap: wrap; }
+  .header .meta span {
+    background: rgba(255,255,255,0.2);
+    border-radius: 8px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  /* Section */
+  .section {
+    background: var(--section-bg);
+    border-left: 4px solid var(--section-border);
+    border-radius: 10px;
+    padding: 0.75rem 1.25rem;
+    margin: 2rem 0 0.75rem;
+    font-weight: 600;
+    font-size: 1rem;
+    color: #0369a1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .section .num {
+    background: #0284c7;
+    color: white;
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; flex-shrink: 0;
+  }
+
+  /* Message */
+  .message {
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--border);
+  }
+  .message.user {
+    background: var(--user-bg);
+    border-color: var(--user-border);
+  }
+  .message.ai {
+    background: var(--ai-bg);
+    border-color: var(--ai-border);
+  }
+  .message-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .badge {
+    font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.6rem;
+    border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .badge.user { background: #bae6fd; color: #0369a1; }
+  .badge.ai   { background: #dcfce7; color: #166534; }
+  .message-body { font-size: 0.92rem; }
+  .message-body p { margin-bottom: 0.5rem; }
+  .message-body p:last-child { margin-bottom: 0; }
+
+  /* Code block */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    font-size: 0.82rem;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+    line-height: 1.5;
+  }
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 4px;
+    padding: 0.1em 0.4em;
+    font-size: 0.85em;
+    font-family: 'Fira Code', 'Consolas', monospace;
+  }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.88rem; }
+  th {
+    background: #f1f5f9;
+    font-weight: 600;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  td { padding: 0.45rem 0.75rem; border: 1px solid var(--border); }
+  tr:nth-child(even) td { background: #f8fafc; }
+
+  /* Result pill */
+  .result {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.82rem; font-weight: 600;
+    border-radius: 20px; padding: 0.2rem 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .result.ok  { background: #dcfce7; color: #166534; }
+  .result.fix { background: #fef9c3; color: #854d0e; }
+
+  /* Diff block */
+  .diff {
+    background: #f8fafc;
+    border: 1px solid var(--code-border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+    font-family: monospace;
+    margin: 0.5rem 0;
+  }
+  .diff .del { color: #dc2626; background: #fef2f2; display: block; padding: 0 0.25rem; border-radius: 3px; }
+  .diff .add { color: #16a34a; background: #f0fdf4; display: block; padding: 0 0.25rem; border-radius: 3px; }
+
+  /* Callout */
+  .callout {
+    border-left: 4px solid var(--warning);
+    background: #fffbeb;
+    border-radius: 0 8px 8px 0;
+    padding: 0.6rem 1rem;
+    font-size: 0.88rem;
+    margin: 0.5rem 0;
+    color: #78350f;
+  }
+  .callout.info { border-color: var(--accent); background: var(--accent-light); color: #1e40af; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    margin-top: 3rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>VehicleDynamicsCAN — 작업 히스토리</h1>
+    <p>feature/simple-tire-model 브랜치 작업 내역</p>
+    <div class="meta">
+      <span>📦 Arduino Uno</span>
+      <span>🌿 feature/simple-tire-model</span>
+      <span>🔗 github.com/jongils/SimpleVehicleArduino</span>
+      <span>📅 2026-03-20</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">1</span> 프로젝트 파일 확인 및 Git 초기화</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>어떤 파일이 있어?</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <table>
+        <tr><th>파일</th><th>설명</th></tr>
+        <tr><td><code>VehicleDynamicsCAN.ino</code></td><td>메인 Arduino 스케치</td></tr>
+        <tr><td><code>VehicleDynamicsCAN.old</code></td><td>이전 버전 백업</td></tr>
+        <tr><td><code>build/</code></td><td>컴파일 결과물 (.elf, .hex, .eep 등)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>git에서 푸쉬한 흔적이 있어?</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p>디렉토리에 <code>.git</code> 폴더가 없습니다. Git 저장소가 아직 초기화되지 않은 상태입니다.</p>
+    </div>
+  </div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>초기화 해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <pre>git init</pre>
+      <span class="result ok">✔ master 브랜치로 빈 저장소 초기화 완료</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">2</span> GitHub Remote 연결 및 동기화</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>https://github.com/jongils/SimpleVehicleArduino.git 여기랑 비교해서 어느쪽이 최신인지 확인해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p>클론 후 diff 비교 결과, 파일 내용이 <strong>완전히 동일</strong>합니다.</p>
+      <table>
+        <tr><th>구분</th><th>내용</th></tr>
+        <tr><td>로컬 파일 수정일</td><td>2026-03-17 19:53</td></tr>
+        <tr><td>GitHub 최신 커밋</td><td>2026-03-17 21:44 — <em>fix/physics-vmax-friction-circle</em></td></tr>
+      </table>
+      <p>파일 내용은 같지만 GitHub 쪽에 커밋 히스토리가 있습니다.</p>
+    </div>
+  </div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>그렇게 해줘 (remote 연결 및 히스토리 가져오기)</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <pre>git remote add origin https://github.com/jongils/SimpleVehicleArduino.git
+git fetch origin
+git reset --hard origin/main
+git checkout -b main --track origin/main</pre>
+      <span class="result ok">✔ main 브랜치가 origin/main 추적 — 커밋 16개 가져옴</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">3</span> feature 브랜치 생성 및 타이어 모델 단순화</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>새로운 branch를 만드는데 거기에선 tire 모델을 좀더 간단히 만들어 보자</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <pre>git checkout -b feature/simple-tire-model</pre>
+      <p>코드 분석 후 단순화 옵션 제안:</p>
+      <table>
+        <tr><th>옵션</th><th>내용</th></tr>
+        <tr><td>A</td><td>슬립/omega 제거, F = μFz × input 단순화</td></tr>
+        <tr><td>B</td><td>friction circle 제거 + 종/횡 독립 선형 캡</td></tr>
+        <tr><td><strong>C</strong></td><td><strong>순수 선형 모델 — explicit Euler 단일 경로, μFz 캡 독립 적용</strong></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>옵션C로 해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p><strong>변경 1 — <code>integrateWheel()</code>: semi-implicit dual-branch → explicit Euler 단일 경로</strong></p>
+      <div class="diff">
+        <span class="del">- if (vx > 0.01f && fabsf(FxLin) &lt; FxMax) {</span>
+        <span class="del">-   // semi-implicit Euler (두 분기)</span>
+        <span class="del">- } else {</span>
+        <span class="del">-   // explicit Euler</span>
+        <span class="del">- }</span>
+        <span class="add">+ float Fx = tyreFx(w.slip, Fz);</span>
+        <span class="add">+ float tq = driveTq - Fx * P_WHEEL_R_M - brakeTq - Frr * P_WHEEL_R_M;</span>
+        <span class="add">+ w.omega += (tq / P_WHEEL_J_KGM2) * dt;</span>
+      </div>
+      <p><strong>변경 2 — Lateral friction circle → 단순 μFz 캡</strong></p>
+      <div class="diff">
+        <span class="del">- float FyfMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nfl) - sq(gFxFL)))</span>
+        <span class="del">-              + sqrtf(max(0.0f, sq(P_TYRE_MU*Nfr) - sq(gFxFR)));</span>
+        <span class="add">+ float FyfMax = P_TYRE_MU * (Nfl + Nfr);</span>
+        <span class="add">+ float FyrMax = P_TYRE_MU * (Nrl + Nrr);</span>
+      </div>
+      <span class="result ok">✔ 커밋 76e4566 — feature/simple-tire-model 푸쉬 완료</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">4</span> 저속 제동 개선 — Hard Stop</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>제동시 저속 구간에서 차량이 완전히 0km/h가 되지 않는데 개선방법</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p><strong>근본 원인</strong>: explicit Euler 전환 후 저속(vx &lt; ~2 m/s)에서 수치 불안정</p>
+      <div class="callout">안정 조건: dt &lt; 2·J·vx / (Cs·R²) → vx=0.5 m/s 시 dt &lt; 0.19 ms 필요 (실제 loop dt ≈ 1~2 ms)</div>
+      <table>
+        <tr><th>옵션</th><th>방법</th></tr>
+        <tr><td><strong>A</strong></td><td><strong>hard stop 조건에 gBrake 추가 + 임계속도 상향 (가장 단순)</strong></td></tr>
+        <tr><td>B</td><td>저속에서만 semi-implicit 복원</td></tr>
+        <tr><td>C</td><td>calcSlip 분모 eps 추가</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>옵션 A로 해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <div class="diff">
+        <span class="del">- if (gSpeed_ms &lt; 0.5f &amp;&amp; gThrottle &lt; 0.05f)</span>
+        <span class="add">+ if (gSpeed_ms &lt; 1.0f &amp;&amp; (gThrottle &lt; 0.05f || gBrake &gt; 0.1f))</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>임계속도를 6km/h로 수정하고 이를 변수로 선언해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <div class="diff">
+        <span class="add">+ const float HARD_STOP_MS = 6.0f / 3.6f; // 6 km/h</span>
+        <span class="del">- if (gSpeed_ms &lt; 1.0f &amp;&amp; ...)</span>
+        <span class="add">+ if (gSpeed_ms &lt; HARD_STOP_MS &amp;&amp; ...)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">5</span> Hard Stop 1차 필터 적용</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>6km/h 이하에서 급격히 제동이 되는데 1차 필터 같은걸 넣어서 부드럽게 멈추게 할 수 있나</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p>1차 지수 감쇠(exponential decay)로 교체합니다. 시상수 <code>HARD_STOP_TAU_S</code>로 속도가 부드럽게 0에 수렴.</p>
+      <pre>const float HARD_STOP_TAU_S = 0.5f; // 감쇠 시상수 [s]
+
+if (gSpeed_ms &lt; HARD_STOP_MS &amp;&amp; ...) {
+    if (gSpeed_ms &lt; 0.05f) {
+        // 최종 스냅
+        gSpeed_ms = 0.0f; ...
+    } else {
+        // 1차 감쇠: v = v * (1 - dt/τ)
+        float decay = max(0.0f, 1.0f - dt / HARD_STOP_TAU_S);
+        gSpeed_ms *= decay;
+        ...
+    }
+}</pre>
+      <div class="callout info">HARD_STOP_TAU_S 조정: 낮추면(0.2~0.3) 빠른 정지 / 높이면(0.8~1.0) 더 부드러운 정지</div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">6</span> 횡속도 오동작 수정</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>수정이후에 횡속도의 변화가 다르게 나타남</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p><strong>원인</strong>: hard stop decay 블록에서 <code>gVy_ms</code>와 <code>gYawRate_rads</code>를 강제 decay — 6 km/h 이하 주행 중 lateral dynamics 모델 계산 전에 값을 줄여버림.</p>
+      <p>횡방향 상태의 저속 decay는 lateral 섹션 <code>else</code> 블록(vxLat ≤ 0.2 m/s)에서 이미 처리 중 → <strong>중복 적용 제거</strong></p>
+      <div class="diff">
+        <span class="del">- gVy_ms        *= decay;</span>
+        <span class="del">- gYawRate_rads *= decay;</span>
+        <span class="del">- gLatAccel_ms2 *= decay;</span>
+        <span class="add">+ // gVy_ms / gYawRate_rads: lateral dynamics section handles these</span>
+      </div>
+      <span class="result ok">✔ 종방향 감쇠와 횡방향 상태 완전 분리</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">7</span> 시리얼 출력 재구성</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>시리얼 출력에 혼돈이 보이는데 다시한번 검토해서 정리를 좀 해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p>문제점 정리:</p>
+      <ul style="margin: 0.4rem 0 0.4rem 1.2rem; font-size:0.9rem;">
+        <li><code>[LAT] vxLat</code> — 사실 <code>gSpeed_ms</code>와 동일, <code>[VEH] Speed</code>와 중복</li>
+        <li><code>vy_dot</code> vs <code>ay</code> — 차이 설명 없이 다른 줄에 흩어져 있음</li>
+        <li><code>Vy</code>(횡속도) — line 16 맨 끝에 숨어있어 눈에 안 띔</li>
+        <li><code>[LAT]</code> 태그 — 입력/상태/출력 구분 없이 혼용</li>
+      </ul>
+      <table>
+        <tr><th>태그 (변경 전)</th><th>태그 (변경 후)</th><th>내용</th></tr>
+        <tr><td><code>[VEH]</code></td><td><code>[VEH]</code></td><td>Accel, Speed, Vx (vxLat 제거)</td></tr>
+        <tr><td><code>[LAT] vxLat+delta</code></td><td><code>[STR]</code></td><td>조향 입력 delta만</td></tr>
+        <tr><td><code>[LAT] aF/aR/Fyf/Fyr</code></td><td><code>[TYR]</code></td><td>타이어 슬립각, 횡력</td></tr>
+        <tr><td><code>[LAT] vy_dot+r_dot+Vy</code></td><td><code>[LAT]</code></td><td><strong>Vy, yr, beta</strong> 핵심 상태 3개</td></tr>
+        <tr><td><code>[OUT] ay+yr+beta</code></td><td><code>[DBG]</code></td><td>vy_dot, r_dot, ay (디버그)</td></tr>
+      </table>
+      <div class="callout info">vy_dot vs ay: <code>vy_dot = ay − r·Vx</code> (원심가속도 항 포함 여부의 차이)</div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">8</span> README 업데이트</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>readme 파일을 수정해 주고, 한글 및 영어 순으로 작성해줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <p>README.md를 한글 → 영어 순으로 전면 재작성. 주요 반영 내용:</p>
+      <ul style="margin: 0.4rem 0 0.4rem 1.2rem; font-size:0.9rem;">
+        <li><code>integrateWheel()</code> 설명: semi-implicit → explicit Euler 단일 경로</li>
+        <li>수치 적분 비교표: semi-implicit Euler 항목 제거</li>
+        <li>타이어 모델: friction circle 제거, 독립 μFz 캡 명시</li>
+        <li>Hard Stop 섹션 신규 추가 (6 km/h, τ=0.5s)</li>
+        <li>시리얼 대시보드 표: 새 태그 체계 반영</li>
+        <li>파라미터 표: 실제 코드값으로 정정 (Cd=0.20, 변속비=0.95 등)</li>
+      </ul>
+      <span class="result ok">✔ README.md 업데이트 완료</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">9</span> 최종 커밋 · 푸쉬 · PR</div>
+
+  <div class="message user">
+    <div class="message-header"><span class="badge user">나</span></div>
+    <div class="message-body"><p>커밋하고 PR 만들어줘</p></div>
+  </div>
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <pre>git add VehicleDynamicsCAN.ino README.md
+git commit -m "Improve low-speed braking, simplify serial output, update README"
+git push origin feature/simple-tire-model</pre>
+      <p>PR: <strong>https://github.com/jongils/SimpleVehicleArduino/pull/7</strong></p>
+      <span class="result ok">✔ 커밋 075e15d — PR #7 생성 완료</span>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────────────────────── -->
+  <div class="section"><span class="num">10</span> 전체 변경 요약</div>
+
+  <div class="message ai">
+    <div class="message-header"><span class="badge ai">Claude</span></div>
+    <div class="message-body">
+      <table>
+        <tr><th>항목</th><th>변경 전 (main)</th><th>변경 후 (feature)</th></tr>
+        <tr><td>휠 적분</td><td>semi-implicit Euler (2분기)</td><td>explicit Euler (단일 경로)</td></tr>
+        <tr><td>횡방향 힘 한계</td><td>friction circle (sqrtf × 4)</td><td>μFz 단순 캡 (종/횡 독립)</td></tr>
+        <tr><td>저속 정지 임계</td><td>0.5 m/s, 스로틀 조건만</td><td>HARD_STOP_MS = 6 km/h, 제동 조건 추가</td></tr>
+        <tr><td>정지 방식</td><td>즉시 스냅</td><td>1차 지수 감쇠 (τ=0.5s) + 최종 스냅</td></tr>
+        <tr><td>횡방향 상태 처리</td><td>hard stop 블록에서 decay</td><td>lateral 섹션에서만 처리 (분리)</td></tr>
+        <tr><td>시리얼 태그</td><td>[LAT] 혼용</td><td>[VEH]/[STR]/[TYR]/[LAT]/[DBG] 분리</td></tr>
+        <tr><td>README</td><td>영어만, 구버전 내용</td><td>한글→영어, 최신 모델 반영</td></tr>
+        <tr><td>플래시 사용량</td><td>18544 bytes (57%)</td><td>18398 bytes (57%)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    VehicleDynamicsCAN · feature/simple-tire-model · 2026-03-20
+  </div>
+
+</div>
+</body>
+</html>
