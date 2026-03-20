@@ -386,48 +386,22 @@ static void normalForces(float ax,
 }
 
 // ============================================================
-//  Wheel dynamics helper — semi-implicit Euler for one wheel
+//  Wheel dynamics helper — simple explicit Euler
 //
-//  Explicit Euler for wheel omega is unstable at low speed:
-//    stability requires dt < 2·J·vx / (Cs·R²)
-//    e.g. vx=2 m/s, J=1.5, Cs=80000, R=0.315 → dt < 0.38 ms
-//  Arduino loop dt ≈ 1–2 ms → explicit Euler causes oscillation.
-//
-//  Semi-implicit fix: treat the slip-stiffness term implicitly.
-//  Linear region:  J·dω/dt = A – B·ω
-//    A = driveTq + Cs·R – brakeTq – Frr·R   (constant part)
-//    B = Cs·R² / vx                          (stiff coupling)
-//  Implicit update (unconditionally stable):
-//    ω_new = (J·ω_old + dt·A) / (J + dt·B)
-//
-//  Saturated region (|Fx_linear| ≥ μ·Fz):
-//    force is constant → explicit Euler is exact.
+//  Linear tyre model: Fx = tyreFx(slip, Fz), already capped at μFz.
+//  One-path explicit Euler for all conditions.
 // ============================================================
 static void integrateWheel(WheelState &w,
                            float driveTq, float brakeTq,
                            float Fz, float vx, float dt)
 {
     w.slip      = calcSlip(w.omega, vx);
-    float Frr   = P_TYRE_RR  * Fz;                // Rolling-resistance force [N]
-    float FxMax = P_TYRE_MU  * Fz;                // Friction limit [N]
-    float FxLin = P_TYRE_CS  * w.slip;            // Unclamped linear tyre force [N]
-
-    if (vx > 0.01f && fabsf(FxLin) < FxMax) {
-        // ── Linear tyre: semi-implicit Euler (unconditionally stable) ──
-        float A    = driveTq + P_TYRE_CS * P_WHEEL_R_M
-                              - brakeTq  - Frr * P_WHEEL_R_M;
-        float B    = P_TYRE_CS * P_WHEEL_R_M * P_WHEEL_R_M / vx;
-        w.omega    = (P_WHEEL_J_KGM2 * w.omega + dt * A)
-                   / (P_WHEEL_J_KGM2 + dt * B);
-    } else {
-        // ── Saturated tyre or standstill: explicit Euler (exact for const force) ──
-        float Fx   = clampf(FxLin, -FxMax, FxMax);
-        float tq   = driveTq - Fx * P_WHEEL_R_M - brakeTq - Frr * P_WHEEL_R_M;
-        w.omega   += (tq / P_WHEEL_J_KGM2) * dt;
-    }
-
-    w.omega     = max(0.0f, w.omega);          // no reverse spinning
-    w.slip      = calcSlip(w.omega, vx);       // refresh after update
+    float Fx    = tyreFx(w.slip, Fz);              // Capped linear tyre force [N]
+    float Frr   = P_TYRE_RR * Fz;                 // Rolling-resistance force [N]
+    float tq    = driveTq - Fx * P_WHEEL_R_M - brakeTq - Frr * P_WHEEL_R_M;
+    w.omega    += (tq / P_WHEEL_J_KGM2) * dt;
+    w.omega     = max(0.0f, w.omega);              // no reverse spinning
+    w.slip      = calcSlip(w.omega, vx);           // refresh after update
     w.speed_kmh = w.omega * P_WHEEL_R_M * 3.6f;
 }
 
@@ -595,12 +569,9 @@ static void updateDynamics(float dt)
         float alphaR = -(gVy_ms - lr_m * gYawRate_rads) / vxLat;
         gAlphaF = alphaF;  gAlphaR = alphaR;
 
-        // Lateral forces — friction circle: available Fy per wheel reduced by Fx already used
-        // Fy_max_wheel = sqrt(max(0, (μFz)² - Fx²))
-        float FyfMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nfl) - sq(gFxFL)))
-                     + sqrtf(max(0.0f, sq(P_TYRE_MU*Nfr) - sq(gFxFR)));
-        float FyrMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nrl) - sq(gFxRL)))
-                     + sqrtf(max(0.0f, sq(P_TYRE_MU*Nrr) - sq(gFxRR)));
+        // Lateral forces — simple linear cap: Fy_max = μFz per axle
+        float FyfMax = P_TYRE_MU * (Nfl + Nfr);
+        float FyrMax = P_TYRE_MU * (Nrl + Nrr);
         float Fyf = clampf(P_TYRE_CF * alphaF, -FyfMax, FyfMax);
         float Fyr = clampf(P_TYRE_CR * alphaR, -FyrMax, FyrMax);
         gFyf = Fyf;  gFyr = Fyr;
