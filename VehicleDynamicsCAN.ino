@@ -221,7 +221,9 @@ unsigned long gLastDynUs    = 0;
 unsigned long gLastCanMs    = 0;
 unsigned long gLastSerialMs = 0;
 
-const float DT_MAX = 0.050f; // Safety clamp on integration step [s]
+const float DT_MAX = 0.050f;           // Safety clamp on integration step [s]
+const float HARD_STOP_MS  = 6.0f / 3.6f; // Hard-stop threshold [m/s] (6 km/h)
+const float HARD_STOP_TAU_S = 0.5f;       // Decay time constant [s] — larger = smoother
 
 // Serial print period [ms] — lower = faster scroll, higher = easier to read
 const unsigned long SERIAL_PERIOD_MS = 500u;  // 2 Hz
@@ -386,48 +388,22 @@ static void normalForces(float ax,
 }
 
 // ============================================================
-//  Wheel dynamics helper — semi-implicit Euler for one wheel
+//  Wheel dynamics helper — simple explicit Euler
 //
-//  Explicit Euler for wheel omega is unstable at low speed:
-//    stability requires dt < 2·J·vx / (Cs·R²)
-//    e.g. vx=2 m/s, J=1.5, Cs=80000, R=0.315 → dt < 0.38 ms
-//  Arduino loop dt ≈ 1–2 ms → explicit Euler causes oscillation.
-//
-//  Semi-implicit fix: treat the slip-stiffness term implicitly.
-//  Linear region:  J·dω/dt = A – B·ω
-//    A = driveTq + Cs·R – brakeTq – Frr·R   (constant part)
-//    B = Cs·R² / vx                          (stiff coupling)
-//  Implicit update (unconditionally stable):
-//    ω_new = (J·ω_old + dt·A) / (J + dt·B)
-//
-//  Saturated region (|Fx_linear| ≥ μ·Fz):
-//    force is constant → explicit Euler is exact.
+//  Linear tyre model: Fx = tyreFx(slip, Fz), already capped at μFz.
+//  One-path explicit Euler for all conditions.
 // ============================================================
 static void integrateWheel(WheelState &w,
                            float driveTq, float brakeTq,
                            float Fz, float vx, float dt)
 {
     w.slip      = calcSlip(w.omega, vx);
-    float Frr   = P_TYRE_RR  * Fz;                // Rolling-resistance force [N]
-    float FxMax = P_TYRE_MU  * Fz;                // Friction limit [N]
-    float FxLin = P_TYRE_CS  * w.slip;            // Unclamped linear tyre force [N]
-
-    if (vx > 0.01f && fabsf(FxLin) < FxMax) {
-        // ── Linear tyre: semi-implicit Euler (unconditionally stable) ──
-        float A    = driveTq + P_TYRE_CS * P_WHEEL_R_M
-                              - brakeTq  - Frr * P_WHEEL_R_M;
-        float B    = P_TYRE_CS * P_WHEEL_R_M * P_WHEEL_R_M / vx;
-        w.omega    = (P_WHEEL_J_KGM2 * w.omega + dt * A)
-                   / (P_WHEEL_J_KGM2 + dt * B);
-    } else {
-        // ── Saturated tyre or standstill: explicit Euler (exact for const force) ──
-        float Fx   = clampf(FxLin, -FxMax, FxMax);
-        float tq   = driveTq - Fx * P_WHEEL_R_M - brakeTq - Frr * P_WHEEL_R_M;
-        w.omega   += (tq / P_WHEEL_J_KGM2) * dt;
-    }
-
-    w.omega     = max(0.0f, w.omega);          // no reverse spinning
-    w.slip      = calcSlip(w.omega, vx);       // refresh after update
+    float Fx    = tyreFx(w.slip, Fz);              // Capped linear tyre force [N]
+    float Frr   = P_TYRE_RR * Fz;                 // Rolling-resistance force [N]
+    float tq    = driveTq - Fx * P_WHEEL_R_M - brakeTq - Frr * P_WHEEL_R_M;
+    w.omega    += (tq / P_WHEEL_J_KGM2) * dt;
+    w.omega     = max(0.0f, w.omega);              // no reverse spinning
+    w.slip      = calcSlip(w.omega, vx);           // refresh after update
     w.speed_kmh = w.omega * P_WHEEL_R_M * 3.6f;
 }
 
@@ -564,15 +540,26 @@ static void updateDynamics(float dt)
     // gFnet already set above; consistent with gAccel_ms2 = gFnet / P_MASS_KG.
 #endif
 
-    // Hard stop: snap to zero when nearly stationary and no throttle
-    if (gSpeed_ms < 0.5f && gThrottle < 0.05f) {
-        gSpeed_ms    = 0.0f;
-        gVy_ms       = 0.0f;
-        gYawRate_rads= 0.0f;
-        gLatAccel_ms2= 0.0f;
-        gSideSlip_deg= 0.0f;
-        wFL.omega = wFR.omega = wRL.omega = wRR.omega = 0.0f;
-        gAccel_ms2 = 0.0f;
+    // Hard stop: smooth decay toward zero below threshold, final snap at near-standstill
+    if (gSpeed_ms < HARD_STOP_MS && (gThrottle < 0.05f || gBrake > 0.1f)) {
+        if (gSpeed_ms < 0.05f) {
+            // Final snap to exactly zero
+            gSpeed_ms     = 0.0f;
+            gVy_ms        = 0.0f;
+            gYawRate_rads = 0.0f;
+            gLatAccel_ms2 = 0.0f;
+            gSideSlip_deg = 0.0f;
+            wFL.omega = wFR.omega = wRL.omega = wRR.omega = 0.0f;
+            gAccel_ms2    = 0.0f;
+        } else {
+            // 1st-order decay: v(t) = v0 · e^(-t/τ)  ≈  v · (1 - dt/τ)
+            float decay = max(0.0f, 1.0f - dt / HARD_STOP_TAU_S);
+            gSpeed_ms  *= decay;
+            float omegaEq = gSpeed_ms / P_WHEEL_R_M;
+            wFL.omega = wFR.omega = wRL.omega = wRR.omega = omegaEq;
+            gAccel_ms2 = -gSpeed_ms / HARD_STOP_TAU_S;
+            // gVy_ms / gYawRate_rads: lateral dynamics section handles these
+        }
     }
 
     // ---- Lateral dynamics: bicycle model (2-DOF) ----
@@ -595,12 +582,9 @@ static void updateDynamics(float dt)
         float alphaR = -(gVy_ms - lr_m * gYawRate_rads) / vxLat;
         gAlphaF = alphaF;  gAlphaR = alphaR;
 
-        // Lateral forces — friction circle: available Fy per wheel reduced by Fx already used
-        // Fy_max_wheel = sqrt(max(0, (μFz)² - Fx²))
-        float FyfMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nfl) - sq(gFxFL)))
-                     + sqrtf(max(0.0f, sq(P_TYRE_MU*Nfr) - sq(gFxFR)));
-        float FyrMax = sqrtf(max(0.0f, sq(P_TYRE_MU*Nrl) - sq(gFxRL)))
-                     + sqrtf(max(0.0f, sq(P_TYRE_MU*Nrr) - sq(gFxRR)));
+        // Lateral forces — simple linear cap: Fy_max = μFz per axle
+        float FyfMax = P_TYRE_MU * (Nfl + Nfr);
+        float FyrMax = P_TYRE_MU * (Nrl + Nrr);
         float Fyf = clampf(P_TYRE_CF * alphaF, -FyfMax, FyfMax);
         float Fyr = clampf(P_TYRE_CR * alphaR, -FyrMax, FyrMax);
         gFyf = Fyf;  gFyr = Fyr;
@@ -861,32 +845,33 @@ void loop()
         // ── line 13: vehicle longitudinal state ──────────────────────
         Serial.print(F("[VEH] Accel:")); pSgn(gAccel_ms2, 3);
         Serial.print(F("m/s2  Speed:")); pSgn(speedKmh,   2);
-        Serial.print(F("km/h ("));       pSgn(gSpeed_ms,  3);
-        Serial.println(F("m/s)\033[K"));
+        Serial.print(F("km/h  Vx:"));    pSgn(gSpeed_ms,  3);
+        Serial.println(F("m/s\033[K"));
 
-        // ── line 14: lateral model inputs ────────────────────────────
-        Serial.print(F("[LAT] vxLat:")); pSgn(gVxLat,   3);
-        Serial.print(F("m/s  delta:")); pSgn(gDeltaRad, 4);
+        // ── line 14: steering input to lateral model ─────────────────
+        Serial.print(F("[STR] delta:")); pSgn(gDeltaRad, 4);
         Serial.print(F("rad ("));        pSgn(gDeltaRad * 180.0f / (float)M_PI, 2);
         Serial.println(F("deg)\033[K"));
 
-        // ── line 15: lateral tyre slip angles & forces ───────────────
-        Serial.print(F("[LAT] aF:"));  pSgn(gAlphaF, 4);
+        // ── line 15: tyre slip angles & lateral forces ───────────────
+        Serial.print(F("[TYR] aF:"));  pSgn(gAlphaF, 4);
         Serial.print(F("rad  aR:"));   pSgn(gAlphaR, 4);
         Serial.print(F("rad  Fyf:"));  pSgn(gFyf,    1);
         Serial.print(F("N  Fyr:"));    pSgn(gFyr,    1);
         Serial.println(F("N\033[K"));
 
-        // ── line 16: lateral derivatives & lateral velocity ──────────
-        Serial.print(F("[LAT] vy_dot:")); pSgn(gVyDot,  3);
-        Serial.print(F("m/s2  r_dot:"));  pSgn(gRDot,   4);
-        Serial.print(F("r/s2  Vy:"));     pSgn(gVy_ms,  3);
-        Serial.println(F("m/s\033[K"));
-
-        // ── line 17: lateral outputs ─────────────────────────────────
-        Serial.print(F("[OUT] ay:"));   pSgn(gLatAccel_ms2, 3);
-        Serial.print(F("m/s2  yr:"));   pSgn(gYawRate_rads, 4);
-        Serial.print(F("r/s  beta:"));  pSgn(gSideSlip_deg, 3);
+        // ── line 16: lateral state outputs ───────────────────────────
+        Serial.print(F("[LAT] Vy:"));    pSgn(gVy_ms,        3);
+        Serial.print(F("m/s  yr:"));     pSgn(gYawRate_rads, 4);
+        Serial.print(F("r/s  beta:"));   pSgn(gSideSlip_deg, 3);
         Serial.println(F("deg\033[K"));
+
+        // ── line 17: lateral derivatives (debug) ─────────────────────
+        // vy_dot = (Fyf+Fyr)/m - r*Vx  (body-frame lat accel incl. centripetal)
+        // ay     = (Fyf+Fyr)/m          (tyre-force contribution only)
+        Serial.print(F("[DBG] vy_dot:")); pSgn(gVyDot,        3);
+        Serial.print(F("m/s2  r_dot:"));  pSgn(gRDot,         4);
+        Serial.print(F("r/s2  ay:"));     pSgn(gLatAccel_ms2, 3);
+        Serial.println(F("m/s2\033[K"));
     }
 }
