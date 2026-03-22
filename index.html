@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SimpleVehicleArduino — 실시간 차량 동역학 시뮬레이터</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* =====================================================================
+       기본 초기화 & 변수
+    ===================================================================== */
+    :root {
+      --bg:        #0a0e1a;
+      --surface:   #111827;
+      --border:    #1f2d45;
+      --accent1:   #00d4ff;
+      --accent2:   #7c3aed;
+      --accent3:   #10b981;
+      --accent4:   #f59e0b;
+      --accent5:   #ef4444;
+      --text:      #e2e8f0;
+      --muted:     #94a3b8;
+      --code-bg:   #0d1117;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* =====================================================================
+       스크롤바
+    ===================================================================== */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--accent2); border-radius: 3px; }
+
+    /* =====================================================================
+       네비게이션
+    ===================================================================== */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 2rem;
+      background: rgba(10,14,26,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent1);
+      letter-spacing: 0.05em;
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; }
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--accent1); }
+
+    /* =====================================================================
+       히어로 섹션
+    ===================================================================== */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 6rem 2rem 4rem;
+      overflow: hidden;
+    }
+    /* 배경 격자 */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      animation: gridMove 20s linear infinite;
+    }
+    @keyframes gridMove {
+      from { background-position: 0 0; }
+      to   { background-position: 48px 48px; }
+    }
+    /* 방사형 글로우 */
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 30%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 700px; height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(124,58,237,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.9rem;
+      border: 1px solid var(--accent1);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      color: var(--accent1);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+      animation: fadeDown 0.6s ease both;
+    }
+    .hero-badge span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent1); animation: blink 1.2s ease infinite; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+    .hero h1 {
+      font-size: clamp(2.2rem, 6vw, 4.5rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #fff 30%, var(--accent1) 70%, var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: fadeDown 0.7s 0.1s ease both;
+    }
+    .hero-sub {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      color: var(--muted);
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+      animation: fadeDown 0.7s 0.2s ease both;
+    }
+    .hero-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      justify-content: center;
+      margin-bottom: 3rem;
+      animation: fadeDown 0.7s 0.3s ease both;
+    }
+    .chip {
+      padding: 0.35rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .chip-blue  { background: rgba(0,212,255,0.12);  color: var(--accent1); border: 1px solid rgba(0,212,255,0.25);  }
+    .chip-purple{ background: rgba(124,58,237,0.15); color: #a78bfa;        border: 1px solid rgba(124,58,237,0.3);  }
+    .chip-green { background: rgba(16,185,129,0.12); color: var(--accent3); border: 1px solid rgba(16,185,129,0.25); }
+    .chip-amber { background: rgba(245,158,11,0.12); color: var(--accent4); border: 1px solid rgba(245,158,11,0.25); }
+    .chip-red   { background: rgba(239,68,68,0.12);  color: var(--accent5); border: 1px solid rgba(239,68,68,0.25);  }
+
+    /* 스펙 카드 */
+    .hero-specs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+      animation: fadeDown 0.7s 0.4s ease both;
+    }
+    .spec-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.4rem;
+      min-width: 130px;
+      text-align: center;
+    }
+    .spec-value { font-size: 1.5rem; font-weight: 800; color: var(--accent1); }
+    .spec-label { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* =====================================================================
+       섹션 공통
+    ===================================================================== */
+    section { padding: 5rem 2rem; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .section-title {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    .section-title .eyebrow {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent1);
+      margin-bottom: 0.5rem;
+    }
+    .section-title h2 {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .section-title p { color: var(--muted); margin-top: 0.75rem; max-width: 560px; margin-left: auto; margin-right: auto; }
+
+    /* =====================================================================
+       아키텍처 다이어그램
+    ===================================================================== */
+    .arch-section { background: linear-gradient(180deg, var(--bg) 0%, #0d1420 100%); }
+    .arch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.2rem;
+    }
+    .arch-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.4rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+    }
+    .arch-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent2);
+      box-shadow: 0 12px 40px rgba(124,58,237,0.2);
+    }
+    .arch-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .arch-card.c1::before { background: linear-gradient(90deg, var(--accent1), var(--accent2)); }
+    .arch-card.c2::before { background: linear-gradient(90deg, var(--accent2), var(--accent5)); }
+    .arch-card.c3::before { background: linear-gradient(90deg, var(--accent3), var(--accent1)); }
+    .arch-card.c4::before { background: linear-gradient(90deg, var(--accent4), var(--accent3)); }
+    .arch-card.c5::before { background: linear-gradient(90deg, var(--accent5), var(--accent4)); }
+    .arch-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+    .arch-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .arch-card p  { font-size: 0.82rem; color: var(--muted); line-height: 1.6; }
+    .arch-card ul { font-size: 0.8rem; color: var(--muted); padding-left: 1rem; margin-top: 0.5rem; line-height: 1.8; }
+
+    /* =====================================================================
+       코드 소개
+    ===================================================================== */
+    .code-section { background: var(--bg); }
+    .code-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      align-items: start;
+    }
+    @media(max-width: 768px){ .code-layout { grid-template-columns: 1fr; } }
+    .code-explain h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+    .code-explain p { font-size: 0.88rem; color: var(--muted); margin-bottom: 1rem; }
+    .fn-list { display: flex; flex-direction: column; gap: 0.6rem; }
+    .fn-item {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      padding: 0.7rem 0.9rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: border-color 0.2s;
+    }
+    .fn-item:hover { border-color: var(--accent1); }
+    .fn-name {
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      color: var(--accent1);
+      white-space: nowrap;
+      min-width: 140px;
+    }
+    .fn-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+
+    /* 코드 블록 */
+    .code-block-wrap {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1rem;
+      background: #161b27;
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #febc2e; }
+    .dot-g { background: #28c840; }
+    .code-filename { font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem; font-family: monospace; }
+    pre {
+      background: var(--code-bg);
+      padding: 1.2rem 1.4rem;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.78rem;
+      line-height: 1.75;
+      overflow-x: auto;
+      color: #c9d1d9;
+    }
+    .kw  { color: #ff79c6; }
+    .ty  { color: #8be9fd; }
+    .fn  { color: #50fa7b; }
+    .cm  { color: #6272a4; font-style: italic; }
+    .st  { color: #f1fa8c; }
+    .nm  { color: #bd93f9; }
+    .op  { color: #ff79c6; }
+
+    /* =====================================================================
+       CAN 프레임 테이블
+    ===================================================================== */
+    .can-section { background: linear-gradient(180deg, #0d1420 0%, var(--bg) 100%); }
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    thead tr { background: #161b27; }
+    th { padding: 0.9rem 1.1rem; text-align: left; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    td { padding: 0.85rem 1.1rem; border-top: 1px solid var(--border); color: var(--text); }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    .id-badge {
+      font-family: monospace;
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: rgba(0,212,255,0.1);
+      color: var(--accent1);
+    }
+
+    /* =====================================================================
+       루프 타이밍 다이어그램
+    ===================================================================== */
+    .loop-section { background: var(--bg); }
+    .timing-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .timing-row {
+      display: grid;
+      grid-template-columns: 180px 1fr 80px;
+      align-items: center;
+      gap: 1rem;
+    }
+    .timing-label { font-size: 0.82rem; font-weight: 600; color: var(--text); text-align: right; }
+    .timing-bar-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      height: 28px;
+      overflow: hidden;
+      position: relative;
+    }
+    .timing-bar {
+      height: 100%;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      padding-left: 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--code-bg);
+      transition: width 1s ease;
+    }
+    .t-free    { background: linear-gradient(90deg, var(--accent1), var(--accent2)); width: 100%; }
+    .t-can     { background: linear-gradient(90deg, var(--accent3), var(--accent1)); width: 10%; }
+    .t-serial  { background: linear-gradient(90deg, var(--accent4), var(--accent3)); width: 0.5%; }
+    .timing-freq { font-size: 0.78rem; color: var(--muted); text-align: center; }
+
+    /* =====================================================================
+       물리 모델 카드
+    ===================================================================== */
+    .physics-section { background: linear-gradient(180deg, var(--bg) 0%, #0d1420 100%); }
+    .physics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem;
+    }
+    .physics-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      transition: box-shadow 0.25s;
+    }
+    .physics-card:hover { box-shadow: 0 0 30px rgba(0,212,255,0.1); }
+    .physics-card .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      margin-bottom: 0.75rem;
+    }
+    .tag-lon  { background: rgba(0,212,255,0.1);  color: var(--accent1); }
+    .tag-lat  { background: rgba(124,58,237,0.15); color: #a78bfa; }
+    .tag-tire { background: rgba(16,185,129,0.12); color: var(--accent3); }
+    .tag-num  { background: rgba(245,158,11,0.12); color: var(--accent4); }
+    .physics-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.6rem; }
+    .physics-card p  { font-size: 0.82rem; color: var(--muted); line-height: 1.6; }
+    .formula {
+      margin-top: 0.75rem;
+      padding: 0.6rem 0.9rem;
+      background: var(--code-bg);
+      border-radius: 6px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.78rem;
+      color: #f1fa8c;
+      line-height: 1.8;
+    }
+
+    /* =====================================================================
+       하드웨어 섹션
+    ===================================================================== */
+    .hw-section { background: linear-gradient(180deg, #0d1420 0%, var(--bg) 100%); }
+    .hw-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+    @media(max-width: 680px){ .hw-layout { grid-template-columns: 1fr; } }
+    .hw-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+    }
+    .hw-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 1rem; color: var(--accent1); }
+    .hw-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.83rem;
+    }
+    .hw-row:last-child { border-bottom: none; }
+    .hw-key   { color: var(--muted); }
+    .hw-val   { font-weight: 600; color: var(--text); text-align: right; }
+    .pin-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
+    .pin-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+    }
+    .pin-num {
+      font-family: monospace;
+      font-weight: 700;
+      padding: 0.1rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+    }
+    .pa { background: rgba(0,212,255,0.1); color: var(--accent1); }
+    .pd { background: rgba(124,58,237,0.15); color: #a78bfa; }
+    .pin-desc { color: var(--muted); }
+
+    /* =====================================================================
+       푸터
+    ===================================================================== */
+    footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    footer a { color: var(--accent1); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* =====================================================================
+       인터섹션 애니메이션
+    ===================================================================== */
+    .reveal {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============================================================
+     네비게이션
+============================================================ -->
+<nav>
+  <a class="nav-logo" href="#">🚗 SimpleVehicleArduino</a>
+  <ul class="nav-links">
+    <li><a href="#overview">개요</a></li>
+    <li><a href="#architecture">아키텍처</a></li>
+    <li><a href="#code">코드 구조</a></li>
+    <li><a href="#physics">물리 모델</a></li>
+    <li><a href="#can">CAN 버스</a></li>
+    <li><a href="#hardware">하드웨어</a></li>
+  </ul>
+</nav>
+
+<!-- ============================================================
+     히어로
+============================================================ -->
+<section class="hero" id="overview">
+  <div class="hero-badge"><span></span>Arduino Uno · 실시간 · CAN Bus</div>
+  <h1>실시간 차량 동역학<br/>시뮬레이터</h1>
+  <p class="hero-sub">
+    Arduino Uno 위에서 구동되는 <strong>4-휠 차량 물리 엔진</strong>.<br/>
+    엔진·드라이브트레인·타이어·횡방향 동역학을 실시간으로 계산하고<br/>
+    CAN 버스를 통해 100 Hz로 텔레메트리를 전송합니다.
+  </p>
+  <div class="hero-chips">
+    <span class="chip chip-blue">Arduino Uno</span>
+    <span class="chip chip-purple">RK4 적분</span>
+    <span class="chip chip-green">CAN 500 kbps</span>
+    <span class="chip chip-amber">Ackermann 조향</span>
+    <span class="chip chip-red">실시간 대시보드</span>
+    <span class="chip chip-blue">877줄 C++</span>
+    <span class="chip chip-purple">MCP2515</span>
+    <span class="chip chip-green">2-DOF 자전거 모델</span>
+  </div>
+  <div class="hero-specs">
+    <div class="spec-card"><div class="spec-value">100 Hz</div><div class="spec-label">CAN 전송 주기</div></div>
+    <div class="spec-card"><div class="spec-value">8개</div><div class="spec-label">CAN 프레임</div></div>
+    <div class="spec-card"><div class="spec-value">RK4</div><div class="spec-label">수치 적분법</div></div>
+    <div class="spec-card"><div class="spec-value">1~2 ms</div><div class="spec-label">루프 주기</div></div>
+    <div class="spec-card"><div class="spec-value">1,500 kg</div><div class="spec-label">차량 질량</div></div>
+    <div class="spec-card"><div class="spec-value">200 Nm</div><div class="spec-label">최대 토크</div></div>
+  </div>
+</section>
+
+<!-- ============================================================
+     아키텍처 개요
+============================================================ -->
+<section class="arch-section" id="architecture">
+  <div class="container">
+    <div class="section-title reveal">
+      <div class="eyebrow">System Architecture</div>
+      <h2>시스템 구성</h2>
+      <p>조이스틱 입력부터 CAN 전송까지, 5개 레이어로 구성된 실시간 파이프라인</p>
+    </div>
+    <div class="arch-grid">
+      <div class="arch-card c1 reveal">
+        <div class="arch-icon">🕹️</div>
+        <h3>① 입력 계층</h3>
+        <p>YwRobot JoyStick Shield로 운전자 명령을 수집합니다.</p>
+        <ul>
+          <li>A0 → 조향각 (±180°)</li>
+          <li>A1 → 가속·제동 [0–1]</li>
+          <li>D6 → 푸시 버튼</li>
+          <li>데드존(±50 ADC) 처리 내장</li>
+        </ul>
+      </div>
+      <div class="arch-card c2 reveal">
+        <div class="arch-icon">⚙️</div>
+        <h3>② 엔진·드라이브트레인</h3>
+        <p>포물선형 토크 곡선으로 엔진 출력을 모델링하고 후륜 오픈 디퍼런셜로 구동력을 분배합니다.</p>
+        <ul>
+          <li>최대 RPM: 6,000</li>
+          <li>피크 토크: 200 Nm @ 3,500 RPM</li>
+          <li>기어비: 0.95, 파이널 드라이브: 3.73</li>
+        </ul>
+      </div>
+      <div class="arch-card c3 reveal">
+        <div class="arch-icon">🔬</div>
+        <h3>③ 물리 적분 엔진</h3>
+        <p>RK4 또는 Euler로 매 루프마다 차량 상태를 업데이트합니다.</p>
+        <ul>
+          <li>종방향 1-DOF (속도·가속도)</li>
+          <li>횡방향 2-DOF (자전거 모델)</li>
+          <li>타이어 슬립·횡력 계산</li>
+          <li>4-휠 법선력 (무게 이동 반영)</li>
+        </ul>
+      </div>
+      <div class="arch-card c4 reveal">
+        <div class="arch-icon">📡</div>
+        <h3>④ CAN 전송</h3>
+        <p>MCP2515 컨트롤러를 통해 500 kbps로 8개 프레임을 100 Hz 주기로 전송합니다.</p>
+        <ul>
+          <li>ID 0x100 — 엔진 데이터</li>
+          <li>ID 0x101~0x104 — 4-휠 데이터</li>
+          <li>ID 0x200 — 조향 데이터</li>
+          <li>ID 0x201 — 횡방향 동역학</li>
+          <li>ID 0x300 — 차량 속도·가속도</li>
+        </ul>
+      </div>
+      <div class="arch-card c5 reveal">
+        <div class="arch-icon">🖥️</div>
+        <h3>⑤ 직렬 대시보드</h3>
+        <p>ANSI 이스케이프 코드로 2 Hz 실시간 터미널 대시보드를 출력합니다.</p>
+        <ul>
+          <li>115,200 baud 시리얼</li>
+          <li>입력·조향·엔진 상태</li>
+          <li>4-휠 슬립·타이어력</li>
+          <li>종·횡 동역학 진단</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     코드 구조
+============================================================ -->
+<section class="code-section" id="code">
+  <div class="container">
+    <div class="section-title reveal">
+      <div class="eyebrow">Code Structure</div>
+      <h2>코드 내부 구조</h2>
+      <p>VehicleDynamicsCAN.ino — 877줄의 핵심 Arduino 스케치</p>
+    </div>
+    <div class="code-layout">
+      <!-- 왼쪽: 함수 목록 -->
+      <div class="code-explain reveal">
+        <h3>핵심 함수 목록</h3>
+        <p>각 함수는 단일 책임 원칙을 따르며, 물리 계층별로 명확히 분리되어 있습니다.</p>
+        <div class="fn-list">
+          <div class="fn-item">
+            <span class="fn-name">readJoystick()</span>
+            <span class="fn-desc">ADC 입력을 스로틀·제동·조향각으로 매핑. 데드존 및 포화 처리.</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">engineTorque()</span>
+            <span class="fn-desc">현재 RPM 기반 포물선 토크 곡선 계산. 아이들·레드라인 경계 처리.</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">updateAckermann()</span>
+            <span class="fn-desc">Ackermann 기하학으로 4-휠 조향각 계산. 전방 독립 조향.</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">normalForces()</span>
+            <span class="fn-desc">종방향 무게 이동을 반영한 4-휠 법선력 계산.</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">integrateWheel()</span>
+            <span class="fn-desc">휠 각속도 Euler 적분. 토크 → 각가속도 → 각속도.</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">updateDynamics()</span>
+            <span class="fn-desc">메인 물리 적분기. RK4 또는 Euler 선택 (#define).</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">latEval()</span>
+            <span class="fn-desc">RK4 중간 단계용 횡방향 미분 평가 (자전거 모델).</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">lonDeriv()</span>
+            <span class="fn-desc">RK4 중간 단계용 종방향 가속도 계산 (공기저항 포함).</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">sendCANFrames()</span>
+            <span class="fn-desc">차량 상태를 8개 CAN 프레임으로 인코딩 후 전송.</span>
+          </div>
+          <div class="fn-item">
+            <span class="fn-name">printDashboard()</span>
+            <span class="fn-desc">ANSI 포맷으로 실시간 상태를 시리얼 터미널에 출력.</span>
+          </div>
+        </div>
+      </div>
+      <!-- 오른쪽: 코드 스니펫 -->
+      <div class="reveal">
+        <div class="code-block-wrap" style="margin-bottom:1.2rem;">
+          <div class="code-block-header">
+            <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+            <span class="code-filename">VehicleDynamicsCAN.ino — 컴파일 타임 옵션</span>
+          </div>
+<pre><span class="cm">// ── 수치 적분법 선택 ──────────────────────────</span>
+<span class="kw">#define</span> <span class="nm">USE_RK4</span>   <span class="nm">1</span>  <span class="cm">// 1=RK4(정밀), 0=Euler(경량)</span>
+
+<span class="cm">// ── 차량 파라미터 (조정 가능) ─────────────────</span>
+<span class="kw">const float</span> <span class="nm">MASS</span>        = <span class="nm">1500.0f</span>;   <span class="cm">// [kg]</span>
+<span class="kw">const float</span> <span class="nm">PEAK_TORQUE</span>  = <span class="nm">200.0f</span>;   <span class="cm">// [Nm]</span>
+<span class="kw">const float</span> <span class="nm">MAX_RPM</span>     = <span class="nm">6000.0f</span>;
+<span class="kw">const float</span> <span class="nm">WHEELBASE</span>   = <span class="nm">2.70f</span>;    <span class="cm">// [m]</span>
+<span class="kw">const float</span> <span class="nm">TIRE_RADIUS</span> = <span class="nm">0.315f</span>;   <span class="cm">// [m]</span>
+<span class="kw">const float</span> <span class="nm">MU</span>         = <span class="nm">0.90f</span>;    <span class="cm">// 마찰계수</span>
+<span class="kw">const float</span> <span class="nm">CD</span>         = <span class="nm">0.20f</span>;    <span class="cm">// 공기저항 계수</span></pre>
+        </div>
+        <div class="code-block-wrap" style="margin-bottom:1.2rem;">
+          <div class="code-block-header">
+            <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+            <span class="code-filename">메인 루프 구조</span>
+          </div>
+<pre><span class="kw">void</span> <span class="fn">loop</span>() {
+  <span class="cm">// ① 자유 주기 물리 적분 (micros 기반 가변 dt)</span>
+  <span class="ty">float</span> dt = (micros() - lastTime) * <span class="nm">1e-6f</span>;
+  <span class="fn">readJoystick</span>();
+  <span class="fn">updateDynamics</span>(dt);      <span class="cm">// RK4: 4회 미분 평가</span>
+
+  <span class="cm">// ② CAN 전송 — 100 Hz (10 ms마다)</span>
+  <span class="kw">if</span> (millis() - lastCanTime &gt;= <span class="nm">10</span>) {
+    <span class="fn">sendCANFrames</span>();
+    lastCanTime = millis();
+  }
+
+  <span class="cm">// ③ 시리얼 대시보드 — 2 Hz (500 ms마다)</span>
+  <span class="kw">if</span> (millis() - lastSerialTime &gt;= <span class="nm">500</span>) {
+    <span class="fn">printDashboard</span>();
+    lastSerialTime = millis();
+  }
+}</pre>
+        </div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+            <span class="code-filename">엔진 토크 곡선</span>
+          </div>
+<pre><span class="ty">float</span> <span class="fn">engineTorque</span>(<span class="ty">float</span> rpm, <span class="ty">float</span> throttle) {
+  <span class="cm">// 포물선형 토크 곡선: 아이들~레드라인</span>
+  <span class="ty">float</span> r = (rpm - IDLE_RPM) / (MAX_RPM - IDLE_RPM);
+  r = constrain(r, <span class="nm">0.0f</span>, <span class="nm">1.0f</span>);
+  <span class="cm">// 3,500 RPM에서 피크, 양 끝에서 0으로 수렴</span>
+  <span class="ty">float</span> curve = <span class="nm">4.0f</span> * r * (<span class="nm">1.0f</span> - r);
+  <span class="kw">return</span> PEAK_TORQUE * curve * throttle;
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     물리 모델
+============================================================ -->
+<section class="physics-section" id="physics">
+  <div class="container">
+    <div class="section-title reveal">
+      <div class="eyebrow">Physics Models</div>
+      <h2>물리 모델 상세</h2>
+      <p>AVR 8비트 MCU에서 구현된 4가지 핵심 역학 모델</p>
+    </div>
+    <div class="physics-grid">
+      <div class="physics-card reveal">
+        <span class="tag tag-lon">종방향 1-DOF</span>
+        <h3>종방향 동역학</h3>
+        <p>타이어 구동력에서 공기저항·구름저항을 차감한 합력으로 차체 가속도를 계산합니다. 저속(6 km/h 미만) 에서는 지수 감쇠로 부드럽게 정지합니다.</p>
+        <div class="formula">
+ax = (ΣFtire − Fdrag − Froll) / m<br/>
+Fdrag = 0.5 × ρ × Cd × A × vx²<br/>
+vx(t+dt) = vx(t) + ax·dt
+        </div>
+      </div>
+      <div class="physics-card reveal">
+        <span class="tag tag-lat">횡방향 2-DOF</span>
+        <h3>자전거 모델 (Bicycle Model)</h3>
+        <p>전·후 등가 축으로 단순화한 선형 자전거 모델로 횡속도와 요레이트를 동시에 적분합니다.</p>
+        <div class="formula">
+dVy/dt = (Fyf + Fyr)/m − r·vx<br/>
+dr/dt  = (lf·Fyf − lr·Fyr) / Iz<br/>
+α_f = δ − atan((Vy + lf·r)/vx)
+        </div>
+      </div>
+      <div class="physics-card reveal">
+        <span class="tag tag-tire">타이어 모델</span>
+        <h3>선형 슬립 모델 (μFz 포화)</h3>
+        <p>종방향 슬립비와 슬립 강성으로 타이어 구동·제동력을 계산하고, μ×Fz로 포화시킵니다. 법선력은 종방향 무게 이동을 반영합니다.</p>
+        <div class="formula">
+κ = (v_wheel − v_body) / max(|v_w|,|v_b|)<br/>
+Fx = Cs × κ,  |Fx| ≤ μ·Fz<br/>
+Fy = Cf × α,  |Fy| ≤ μ·Fz_axle
+        </div>
+      </div>
+      <div class="physics-card reveal">
+        <span class="tag tag-num">수치 적분</span>
+        <h3>RK4 / Euler 이중 지원</h3>
+        <p>#define USE_RK4로 컴파일 타임에 선택합니다. RK4는 4회 미분 평가로 O(dt⁴) 오차를 달성하며, Euler는 AVR 자원이 부족할 때 대안으로 사용합니다.</p>
+        <div class="formula">
+<span style="color:#8be9fd;">RK4</span>: k1=f(t,y), k2=f(t+h/2, y+k1·h/2)<br/>
+      k3=f(t+h/2, y+k2·h/2), k4=f(t+h, y+k3·h)<br/>
+      y(t+h) = y + (k1+2k2+2k3+k4)·h/6
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CAN 프레임 테이블
+============================================================ -->
+<section class="can-section" id="can">
+  <div class="container">
+    <div class="section-title reveal">
+      <div class="eyebrow">CAN Bus — 100 Hz</div>
+      <h2>CAN 프레임 구조</h2>
+      <p>MCP2515 · 500 kbps · 표준 11-bit ID · 8개 프레임</p>
+    </div>
+    <div class="table-wrap reveal">
+      <table>
+        <thead>
+          <tr>
+            <th>Frame ID</th>
+            <th>이름</th>
+            <th>페이로드 내용</th>
+            <th>해상도</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="id-badge">0x100</span></td>
+            <td>Engine</td>
+            <td>RPM, 토크, 스로틀%, 제동%</td>
+            <td>uint16, int16×10, uint8, uint8</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x101</span></td>
+            <td>Wheel FL</td>
+            <td>휠 속도, 슬립비, 조향각 (전좌)</td>
+            <td>int16×100, int16×1000, int16×10</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x102</span></td>
+            <td>Wheel FR</td>
+            <td>휠 속도, 슬립비, 조향각 (전우)</td>
+            <td>int16×100, int16×1000, int16×10</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x103</span></td>
+            <td>Wheel RL</td>
+            <td>휠 속도, 슬립비 (후좌)</td>
+            <td>int16×100, int16×1000</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x104</span></td>
+            <td>Wheel RR</td>
+            <td>휠 속도, 슬립비 (후우)</td>
+            <td>int16×100, int16×1000</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x200</span></td>
+            <td>Steering</td>
+            <td>조향휠 각도, 로드휠 각도</td>
+            <td>int16×10, int16×100</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x201</span></td>
+            <td>Lateral</td>
+            <td>횡가속도, 요레이트, 사이드슬립각</td>
+            <td>int16×100, int16×1000, int16×100</td>
+          </tr>
+          <tr>
+            <td><span class="id-badge">0x300</span></td>
+            <td>Vehicle</td>
+            <td>차속, 종가속도</td>
+            <td>int16×100 (km/h), int16×100 (m/s²)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 루프 타이밍 -->
+    <div style="margin-top:3rem;">
+      <div class="section-title reveal" style="margin-bottom:1.5rem;">
+        <div class="eyebrow">Loop Timing</div>
+        <h2>루프 타이밍 다이어그램</h2>
+      </div>
+      <div class="timing-grid reveal">
+        <div class="timing-row">
+          <div class="timing-label">물리 적분 (자유 루프)</div>
+          <div class="timing-bar-wrap">
+            <div class="timing-bar t-free">~1–2 ms 주기</div>
+          </div>
+          <div class="timing-freq">~500–1000 Hz</div>
+        </div>
+        <div class="timing-row">
+          <div class="timing-label">CAN 프레임 전송</div>
+          <div class="timing-bar-wrap">
+            <div class="timing-bar t-can" data-width="10%">10 ms</div>
+          </div>
+          <div class="timing-freq">100 Hz</div>
+        </div>
+        <div class="timing-row">
+          <div class="timing-label">시리얼 대시보드</div>
+          <div class="timing-bar-wrap">
+            <div class="timing-bar t-serial" data-width="0.5%">500 ms</div>
+          </div>
+          <div class="timing-freq">2 Hz</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     하드웨어
+============================================================ -->
+<section class="hw-section" id="hardware">
+  <div class="container">
+    <div class="section-title reveal">
+      <div class="eyebrow">Hardware</div>
+      <h2>하드웨어 구성</h2>
+      <p>Arduino Uno + JoyStick Shield + CAN-BUS Shield로 구성된 최소 하드웨어 스택</p>
+    </div>
+    <div class="hw-layout">
+      <div class="hw-card reveal">
+        <h3>📋 부품 사양</h3>
+        <div class="hw-row"><span class="hw-key">MCU</span><span class="hw-val">Arduino Uno (ATmega328P, 16 MHz)</span></div>
+        <div class="hw-row"><span class="hw-key">입력 장치</span><span class="hw-val">YwRobot JoyStick Shield V1</span></div>
+        <div class="hw-row"><span class="hw-key">CAN 컨트롤러</span><span class="hw-val">DiyMore CAN-BUS Shield V1.2 (MCP2515)</span></div>
+        <div class="hw-row"><span class="hw-key">CAN 속도</span><span class="hw-val">500 kbps</span></div>
+        <div class="hw-row"><span class="hw-key">CAN ID 형식</span><span class="hw-val">표준 11-bit</span></div>
+        <div class="hw-row"><span class="hw-key">시리얼 속도</span><span class="hw-val">115,200 baud</span></div>
+        <div class="hw-row"><span class="hw-key">SPI 클럭</span><span class="hw-val">8 MHz (MCP2515 크리스탈)</span></div>
+        <div class="hw-row"><span class="hw-key">라이브러리</span><span class="hw-val">MCP_CAN (Cory Fowler)</span></div>
+      </div>
+      <div class="hw-card reveal">
+        <h3>📌 핀 매핑</h3>
+        <div class="pin-grid">
+          <div class="pin-item"><span class="pin-num pa">A0</span><span class="pin-desc">조이스틱 X (조향)</span></div>
+          <div class="pin-item"><span class="pin-num pa">A1</span><span class="pin-desc">조이스틱 Y (가속/제동)</span></div>
+          <div class="pin-item"><span class="pin-num pd">D6</span><span class="pin-desc">조이스틱 SW (버튼)</span></div>
+          <div class="pin-item"><span class="pin-num pd">D2</span><span class="pin-desc">SW1</span></div>
+          <div class="pin-item"><span class="pin-num pd">D3</span><span class="pin-desc">SW2</span></div>
+          <div class="pin-item"><span class="pin-num pd">D4</span><span class="pin-desc">SW3</span></div>
+          <div class="pin-item"><span class="pin-num pd">D5</span><span class="pin-desc">SW4</span></div>
+          <div class="pin-item"><span class="pin-num pd">D7</span><span class="pin-desc">SW5</span></div>
+          <div class="pin-item"><span class="pin-num pd">D10</span><span class="pin-desc">CAN CS (SPI)</span></div>
+          <div class="pin-item"><span class="pin-num pd">D11</span><span class="pin-desc">SPI MOSI</span></div>
+          <div class="pin-item"><span class="pin-num pd">D12</span><span class="pin-desc">SPI MISO</span></div>
+          <div class="pin-item"><span class="pin-num pd">D13</span><span class="pin-desc">SPI SCK</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     푸터
+============================================================ -->
+<footer>
+  <p>
+    <strong style="color:var(--accent1);">SimpleVehicleArduino</strong> &nbsp;·&nbsp;
+    Arduino Uno 기반 실시간 차량 동역학 시뮬레이터 &nbsp;·&nbsp;
+    <a href="https://github.com/jongils/SimpleVehicleArduino" target="_blank" rel="noopener">GitHub 저장소 보기</a>
+  </p>
+  <p style="margin-top:0.5rem; font-size:0.75rem;">
+    VehicleDynamicsCAN.ino · MCP_CAN · Arduino Uno · CAN 500 kbps · RK4 수치 적분
+  </p>
+</footer>
+
+<!-- ============================================================
+     인터섹션 옵저버 (스크롤 애니메이션)
+============================================================ -->
+<script>
+  const reveals = document.querySelectorAll('.reveal');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  reveals.forEach(el => io.observe(el));
+
+  /* 타이밍 바 애니메이션 (뷰포트 진입 시) */
+  /* 초기 너비를 0으로 설정하고, 진입 시 data-width 또는 CSS 너비로 전환 */
+  document.querySelectorAll('.timing-bar[data-width]').forEach(b => {
+    b.style.width = '0';
+  });
+  const barIo = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.querySelectorAll('.timing-bar').forEach(b => {
+          b.style.width = b.dataset.width || b.style.width || '100%';
+        });
+        barIo.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  document.querySelectorAll('.timing-grid').forEach(g => barIo.observe(g));
+</script>
+</body>
+</html>
